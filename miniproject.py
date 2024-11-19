@@ -10,254 +10,378 @@ import streamlit.components.v1 as components
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import re
 from dotenv import load_dotenv
-import os
+
+# Load environment variables
 load_dotenv()
 
-st.set_page_config(page_title="LinkedIn Sentiment Analysis", layout="wide")
-purl="https://www.linkedin.com/in/williamhgates/"
+# Page configuration
+st.set_page_config(
+    page_title="LinkedIn Analytics",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-def scrapeposts():
-    api_url="https://fresh-linkedin-profile-data.p.rapidapi.com/get-profile-posts"
-    querystring = {"linkedin_url":{purl},"type":"posts"}
+def scrapeposts(purl):
+    """
+    Scrape and analyze LinkedIn posts for the given profile URL
+    """
+    api_url = "https://fresh-linkedin-profile-data.p.rapidapi.com/get-profile-posts"
+    querystring = {"linkedin_url": purl, "type": "posts"}
     headers = {
-	"X-RapidAPI-Key": os.getenv("RAPID_API_KEY"),
-	"X-RapidAPI-Host": "fresh-linkedin-profile-data.p.rapidapi.com"
-     }
-    api_res = requests.get(api_url, headers=headers, params=querystring)
-    if api_res.status_code == 200:
-    #with open('demo.json') as f:
-        json_data =  json.loads(api_res.text)#json.load(f)
+        "X-RapidAPI-Key": os.getenv("RAPID_API_KEY"),
+        "X-RapidAPI-Host": "fresh-linkedin-profile-data.p.rapidapi.com"
+    }
+    
+    try:
+        api_res = requests.get(api_url, headers=headers, params=querystring, timeout=30)
+        api_res.raise_for_status()
+        
+        json_data = api_res.json()
+        if not json_data.get('data'):
+            st.error("No post data found for this profile")
+            return
+            
         data = json_data['data'][:10]  # Limit to first 10 post URLs
 
-        post_urls = [item['post_url'] for item in data]
-        num_likes = [item['num_likes'] for item in data]
-        num_comments = [item['num_comments'] for item in data]
-        num_reposts = [item['num_reposts'] for item in data]
-        num_reposts = [item['num_reposts'] for item in data]
+        # Extract data
+        post_urls = [item.get('post_url', '') for item in data]
+        num_likes = [item.get('num_likes', 0) for item in data]
+        num_comments = [item.get('num_comments', 0) for item in data]
+        num_reposts = [item.get('num_reposts', 0) for item in data]
+
+        # Display metrics
         st.divider()
-        p1,p3,p4 = st.columns(3)
+        p1, p2, p3 = st.columns(3)
         with p1:
             st.write("Total Likes")
-            st.title(sum(num_likes))
+            st.title(f"{sum(num_likes):,}")
+            st.divider()
+        with p2:
+            st.write("Total Impressions")
+            total_impressions = sum(num_likes) + sum(num_reposts)
+            st.title(f"{total_impressions:,}")
             st.divider()
         with p3:
-            st.write("Total Impressions")
-            total_impressions = sum(num_likes)+sum(num_reposts)
-            st.title(total_impressions)
-            st.divider()
-        with p4:
             st.write("Total Engagements")
-            total_engagements = sum(num_likes)
-            st.title(total_engagements)
+            total_engagements = sum(num_likes) + sum(num_comments) + sum(num_reposts)
+            st.title(f"{total_engagements:,}")
             st.divider()
 
+        # Create DataFrames
         df = pd.DataFrame({
-        'Post URL': post_urls,
-        'Number of Likes': num_likes,
-        'Number of Comments': num_comments,
-        # 'Number of Appreciations': num_appreciations,
-        'Number of Reposts': num_reposts,
+            'Post URL': post_urls,
+            'Number of Likes': num_likes,
+            'Number of Comments': num_comments,
+            'Number of Reposts': num_reposts,
         })
 
-        df1 = pd.DataFrame({
-        'Number of Likes': num_likes,
+        # Display visualizations
+        st.subheader("Engagement Metrics Over Time")
+        
+        # Bar charts
+        col1, col2 = st.columns(2)
+        with col1:
+            st.caption("Likes per Post")
+            st.bar_chart(data=df, y="Number of Likes")
+        with col2:
+            st.caption("Comments per Post")
+            st.bar_chart(data=df, y="Number of Comments")
+        
+        # Area chart for overall engagement
+        st.subheader("Overall Engagement Trends")
+        chart_data = pd.DataFrame({
+            "Likes": num_likes,
+            "Comments": num_comments,
+            "Reposts": num_reposts,
         })
+        st.area_chart(chart_data)
 
-        df2 = pd.DataFrame({
-        'Number of Comments': num_comments,
-        })
-
-        df3 = pd.DataFrame({
-        # 'Number of Appreciations': num_appreciations,
-        })
-
-        df4 = pd.DataFrame({
-        'Number of Reposts': num_reposts,
-        })
-
-
-
-        part1,part2 = st.columns(2)
-        with part1:
-            st.bar_chart(data = df1, y = "Number of Likes")
-        with part2:
-            st.bar_chart(data = df2, y = "Number of Comments")
-        part3,part4 = st.columns(2)
-        # with part3:
-            # st.line_chart(df3, y = "Number of Appreciations")
-        with part4:
-            st.line_chart(df4, y = "Number of Reposts")
-        st.title("Last 10 Posts:")
-        st.table(df)
-        df5 = df.sort_values('Number of Likes', ascending=False)
-        first_post_url = df5.iloc[0]['Post URL']
+        # Display tables and insights
+        st.title("Recent Posts Analysis")
+        st.dataframe(df, use_container_width=True)
+        
+        # Most engaging posts
+        st.divider()
+        st.subheader("Top Performing Posts")
+        df_sorted = df.sort_values('Number of Likes', ascending=False)
+        st.dataframe(df_sorted, use_container_width=True)
+        
+        # AI Insights
         st.divider()
         st.title("AI Insights")
-        assistant_response = f"Most Liked Post: {first_post_url}, Which Has {df5.iloc[0]['Number of Likes']} Likes and {df5.iloc[0]['Number of Reposts']} Reposts on it."
-        with st.chat_message("assistant"):
-                st.markdown(assistant_response)
-        st.divider()
-        #post_id = first_post_url.split(':')[-1].strip('/')
-        st.title("Recently Most Liked Posts:")
-        st.table(df5)
-        #st.write(post_id)
-        chart_data = pd.DataFrame(
-        {
-            # "Number of Appreciations": num_appreciations,
-            "Number of Likes": num_likes,
-            "Number of Reposts": num_reposts,
-        })
-        st.area_chart(chart_data, y=["Number of Likes","Number of Reposts"])
-    #else:
-    #    st.write("ERROR 404")
+        top_post = df_sorted.iloc[0]
+        insights = [
+            f"📈 Most Engaging Post: {top_post['Post URL']}",
+            f"👍 Received {top_post['Number of Likes']:,} likes",
+            f"💬 Generated {top_post['Number of Comments']:,} comments",
+            f"🔄 Earned {top_post['Number of Reposts']:,} reposts",
+            f"📊 Average likes per post: {df['Number of Likes'].mean():.1f}",
+            f"💡 Engagement rate: {(total_engagements / len(data)):.1f} interactions per post"
+        ]
+        
+        for insight in insights:
+            st.markdown(insight)
+            
+    except requests.exceptions.RequestException as e:
+        st.error(f"Failed to fetch post data: {str(e)}")
+    except json.JSONDecodeError as e:
+        st.error(f"Failed to parse API response: {str(e)}")
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {str(e)}")
 
-    #else:
-    #    st.write(f"Request failed with status code {api_res.status_code}")
-
-with st.sidebar:
-    choose = option_menu("DASHBOARD", ["My Info","Post Analyzer","Competitor Analysis"],
-                         icons=['linkedin', 'file-post', 'kanban', 'book','person lines fill'],
-                         menu_icon="list", default_index=0,
-                         styles={
-        "container": {"padding": "5!important",},
-        "icon": {"color": "#000", "font-size": "25px"}, 
-        "nav-link": {"font-size": "16px", "text-align": "left", "margin":"0px", "--hover-color": "#0087FF"},
-        "nav-link-selected": {"background-color": "#0087FF"},
-    }
-    )
-
-placeholder = st.empty()
-
-
-if choose == "My Info":
-    st.title("LinkedIn Analytics")
-    components.html("""  <script type="text/javascript" src="https://ssl.gstatic.com/trends_nrtr/3523_RC02/embed_loader.js"></script>
-  <script type="text/javascript">
-    trends.embed.renderWidget("dailytrends", "", {"geo":"IN","guestPath":"https://trends.google.com:443/trends/embed/"});
-  </script>
-""")
-    purl = st.text_input("Enter Your LinkedIn Profile URL:")
-    if st.button("Extract Information"):
-        scrapeposts()
-
-elif choose == "Post Analyzer":
-    st.title('📱 LinkedIn Posts Scanner ')
-    api_key = "8f5ea1db-f14f-4528-a885-c7cf8661227a"
-    url = "https://api.oneai.com/api/v0/pipeline"
+def analyze_post(post_url):
+    """
+    Analyze a single LinkedIn post using Cohere API
+    """
+    # Extract API key from environment variables
+    cohere_api_key = os.getenv("COHERE_API_KEY")
+    if not cohere_api_key:
+        st.error("Cohere API key not found in environment variables")
+        return
+        
+    # Define the Cohere API endpoint
+    url = "https://api.cohere.ai/v1/generate"
+    
     headers = {
-      "api-key": api_key, 
-      "content-type": "application/json"
+        "Authorization": f"Bearer {cohere_api_key}",
+        "Content-Type": "application/json"
     }
-    input_url = st.text_input('Drop the LinkedIn post link here 👇')
-    payload = {
-            "input": input_url,
+    
+    try:
+        # Extract post content (you can replace this step with actual post content scraping or processing)
+        payload = {
+            "input": post_url,
             "input_type": "article",
             "output_type": "json",
-            "steps": [
+            "steps": [{"skill": "html-extract-article"}],  # Example of extracting article content
+        }
+
+        # Making the request to the extraction API (you can replace this step with actual post content extraction logic)
+        response = requests.post("https://api.oneai.com/api/v0/pipeline", json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        article_data = response.json()
+        
+        if not article_data.get('output'):
+            st.error("Could not extract post content")
+            return
+        
+        article_text = article_data['output'][0]['contents'][0]['utterance']
+        st.success("Successfully extracted post content!")
+        
+        # Now, analyze this content using Cohere's API
+        st.info("Analyzing post content with Cohere...")
+        
+        cohere_payload = {
+            "model": "xlarge",  # You can choose the model based on your needs, for example, 'xlarge' or 'large'
+            "prompt": f"Analyze this LinkedIn post and provide insights: {article_text}",
+            "max_tokens": 500,
+            "temperature": 0.7
+        }
+        
+        # Send the request to Cohere's API for analysis
+        cohere_response = requests.post(url, headers=headers, json=cohere_payload, timeout=30)
+        cohere_response.raise_for_status()
+        
+        cohere_data = cohere_response.json()
+        
+        if "text" in cohere_data:
+            analysis = cohere_data["text"]
+            st.subheader("AI Analysis")
+            st.markdown(analysis)
+        else:
+            st.error("Invalid response format from Cohere API")
+            
+    except requests.exceptions.RequestException as e:
+        st.error(f"API request failed: {str(e)}")
+    except json.JSONDecodeError as e:
+        st.error(f"Failed to parse API response: {str(e)}")
+    except Exception as e:
+        st.error(f"An unexpected error occurred: {str(e)}")
+
+def competitor_analysis(username, password, comp_un):
+    """
+    Analyze a competitor's LinkedIn profile
+    """
+    try:
+        options = Options()
+        options.headless = True
+        furl = f'https://www.linkedin.com/in/{comp_un}?original_referer=https://google.com'
+        
+        driver = webdriver.Firefox(options=options)
+        wait = WebDriverWait(driver, 10)
+        
+        # Login process
+        driver.get('https://www.linkedin.com/login')
+        
+        username_input = wait.until(EC.presence_of_element_located((By.ID, "username")))
+        username_input.send_keys(username)
+        
+        password_input = wait.until(EC.presence_of_element_located((By.ID, "password")))
+        password_input.send_keys(password)
+        
+        login_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']")))
+        login_button.click()
+        
+        # Wait and navigate
+        time.sleep(3)
+        driver.get(furl)
+        
+        # Extract profile data
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "main")))
+        
+        profile_data = []
+        sections = {
+            "About": "section.artdeco-card div.display-flex span",
+            "Experience": "section#experience-section li.artdeco-list__item",
+            "Education": "section#education-section li.artdeco-list__item",
+            "Skills": "section.artdeco-card section.skill-categories-section span"
+        }
+        
+        for section_name, selector in sections.items():
+            try:
+                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                section_data = [element.text.strip() for element in elements if element.text.strip()]
+                if section_data:
+                    profile_data.append(f"\n{section_name}:")
+                    profile_data.extend(section_data)
+            except Exception as e:
+                st.warning(f"Could not extract {section_name} section: {str(e)}")
+        
+        if not profile_data:
+            raise ValueError("No profile data could be extracted")
+        
+        profile_text = '\n'.join(profile_data)
+        st.success("Successfully extracted profile information!")
+        
+        # AI Analysis
+        st.info("Analyzing profile data...")
+        
+        anyscale_token = os.getenv("ANYSCALE_API_KEY")
+        if not anyscale_token:
+            st.error("Anyscale API key not found in environment variables")
+            return
+            
+        api_base = "https://api.endpoints.anyscale.com/v1/chat/completions"
+        body = {
+            "model": "meta-llama/Llama-2-70b-chat-hf",
+            "messages": [
                 {
-                "skill": "html-extract-article"
+                    "role": "system",
+                    "content": "You are an AI assistant analyzing LinkedIn profiles. Provide insights about career progression, skills, and professional background. Compare with industry standards and suggest potential opportunities or gaps."
+                },
+                {
+                    "role": "user",
+                    "content": f"Analyze this LinkedIn profile data and provide strategic insights:\n\n{profile_text}"
                 }
             ],
+            "temperature": 0.7,
+            "max_tokens": 750
         }
-    req1 = requests.post(url, json=payload, headers=headers)
-    article_data = req1.json()
-    print(req1.json)
-    if st.button("Extract Information"):
-        article_text = article_data['output'][0]['contents'][0]['utterance']
-        st.text("FETCHED ALL THE COMMENTS!")
-        st.text("FEEDING ALL COMMENTS TO AI...")
-        api_base = "https://api.endpoints.anyscale.com/v1/chat/completions"
-        token = "esecret_x87vhql3nwigeupf8exw4egzw5" #esecret_x87vhql3nwigeupf8exw4egzw5
-        url = api_base
-        body = {
-                "model": "meta-llama/Llama-2-70b-chat-hf",
-                "messages": [{"role": "system", "content": "You are an helpful assistant"}, 
-                {"role": "user", "content": f"{article_text} above are the comments of  linkedin post, take first few comments,mention the users  and give meaningfull sentiment analysis and insights of  comments along with the conclusion based on the comments in a way that is apealing for me to read with bullet points ,start directly with the answer , dont say Sure, heres my analysis of the first few comments on Gary Vaynerchuks LinkedIn post"}],
-                "temperature": 0.7
-                }
-        res1 =  requests.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
-        data = res1.json()
-        assistant_response = data["choices"][0]["message"]["content"]
-        message_placeholder = st.empty()
-        full_response = ""
-        with st.chat_message("assistant"):
-                st.markdown(assistant_response)
-
-
-
-
-if choose == "Competitor Analysis":
-    username = st.text_input("Enter Your Username:")
-    password = st.text_input("Enter Your Password:",type="password")
-    comp_un = st.text_input("Enter Your Competitor's Profile Username:")
-    if st.button("Extract Information"):
-        Options = Options()
-        Options.headless = True
-        furl = f'https://www.linkedin.com/in/{comp_un}?original_referer=https://google.com'
-        url = comp_un
-        driver = webdriver.Firefox()
-        driver.get('https://www.linkedin.com/login')
-        driver.implicitly_wait(4)
-        username_input = driver.find_element(By.XPATH,'//*[@id="username"]')
-        username_input.send_keys(username)
-        password_input = driver.find_element(By.XPATH,'//*[@id="password"]')
-        password_input.send_keys(password)
-        log_in_button = driver.find_element(By.XPATH,'/html/body/div/main/div[2]/div[1]/form/div[3]/button')
-        log_in_button.click()
-        driver.implicitly_wait(10)
-        driver.get(url)
-        driver.implicitly_wait(5)
-        main_element = "/html/body/div[5]/div[3]/div/div/div[2]/div/div/main"
-        comment_elements = driver.find_elements(By.XPATH, '/html/body/div[5]/div[3]/div/div/div[2]/div/div/main/section[1]/div[2]/div[2]/div[2]/span[1]')
-        profile_elements = driver.find_elements(By.XPATH, '/html/body/div[5]/div[3]/div/div/div[2]/div/div/main/section[4]/div[3]/div/div/div/span[1]')# Adjust the class based on LinkedIn's structure
-        #st.write(comment_elements)
-        with open('output.txt', 'w') as f:
-            for comment in comment_elements:
-                comment_text = comment.text.strip()
-                comment_text = re.sub(r'\[[\s\S]*?\]', '', comment_text)
-                f.write(comment_text + '\n')
-        with open('output.txt', 'w') as f:
-            for profile in profile_elements:
-                profile_text = profile.text.strip()
-                profile_text = re.sub(r'\[[\s\S]*?\]', '', profile_text)
-                f.write(profile_text + main_element+ '\n')
-        driver.implicitly_wait(4)
-        driver.quit()
-        with open('output.txt', 'r') as f:
-            content = f.read()
-        st.text("FETCHED ALL THE COMMENTS!")
-        st.text("FEEDING ALL COMMENTS TO AI...")
-        api_base = "https://api.endpoints.anyscale.com/v1/chat/completions"
-        token = "esecret_ase3ntamfk5ayicf5qx5bw2fpr"
-        url = api_base
-        body = {
-                "model": "meta-llama/Llama-2-70b-chat-hf",
-                "messages": [{"role": "system", "content":furl}, 
-                {"role": "user", "content": f"using below data of my linkedin competitor, give me usefull insights: {content}"}],
-                "temperature": 0.7
-                }
-        res1 =  requests.post(url, headers={"Authorization": f"Bearer {token}"}, json=body)
-        data = res1.json()
-        if "choices" in data and data["choices"]:
-            if "message" in data["choices"][0] and "content" in data["choices"][0]["message"]:
-                assistant_response = data["choices"][0]["message"]["content"]
-            else:
-                print("Error: 'message' key or 'content' key not found in the first item of the 'choices' list.")
+        
+        response = requests.post(
+            api_base,
+            headers={
+                "Authorization": f"Bearer {anyscale_token}",
+                "Content-Type": "application/json"
+            },
+            json=body,
+            timeout=30
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        if "choices" in data and data["choices"] and \
+           "message" in data["choices"][0] and \
+           "content" in data["choices"][0]["message"]:
+            analysis = data["choices"][0]["message"]["content"]
+            st.subheader("AI Analysis")
+            st.markdown(analysis)
         else:
-            print("Error: 'choices' key not found in the data dictionary or the 'choices' list is empty.")
+            st.error("Invalid response format from AI service")
+            
+    except ValueError as e:
+        st.error(str(e))
+    except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
+    finally:
+        if 'driver' in locals():
+            driver.quit()
 
-        message_placeholder = st.empty()
-        full_response = ""
-        with st.chat_message("assistant"):
-                st.markdown(assistant_response)
+# Sidebar navigation
+with st.sidebar:
+    choose = option_menu(
+        "DASHBOARD",
+        ["My Profile", "Post Analyzer", "Competitor Analysis"],
+        icons=['linkedin', 'file-post', 'kanban'],
+        menu_icon="list",
+        default_index=0,
+        styles={
+            "container": {"padding": "5!important"},
+            "icon": {"color": "#000", "font-size": "25px"},
+            "nav-link": {
+                "font-size": "16px",
+                "text-align": "left",
+                "margin": "0px",
+                "--hover-color": "#0087FF"
+            },
+            "nav-link-selected": {"background-color": "#0087FF"},
+        }
+    )
 
-#MainMenu {visibility: hidden;}
+# Main content area
+if choose == "My Profile":
+    st.title("LinkedIn Analytics Dashboard")
+    st.write("Analyze your LinkedIn profile performance and engagement metrics")
+    
+    purl = st.text_input("Enter Your LinkedIn Profile URL:", 
+                        placeholder="https://www.linkedin.com/in/yourprofile")
+    
+    if st.button("Analyze Profile"):
+        if not purl:
+            st.error("Please enter a LinkedIn profile URL")
+        else:
+            scrapeposts(purl)
+
+elif choose == "Post Analyzer":
+    st.title("LinkedIn Post Analyzer")
+    st.write("Get detailed insights about any LinkedIn post")
+    
+    post_url = st.text_input("Enter LinkedIn Post URL:", 
+                            placeholder="https://www.linkedin.com/posts/...")
+    
+    if st.button("Analyze Post"):
+        if not post_url:
+            st.error("Please enter a LinkedIn post URL")
+        else:
+            analyze_post(post_url)
+
+elif choose == "Competitor Analysis":
+    st.title("Competitor Profile Analysis")
+    st.write("Analyze any LinkedIn profile for competitive insights")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        username = st.text_input("LinkedIn Username:")
+        password = st.text_input("LinkedIn Password:", type="password")
+    with col2:
+        comp_un = st.text_input("Competitor's Profile Username:",
+                               placeholder="john-doe")
+    
+    if st.button("Analyze Competitor"):
+        if not all([username, password, comp_un]):
+            st.error("Please fill in all required fields")
+        else:
+            competitor_analysis(username, password, comp_un)
+
+# Footer
 st.markdown("""
     <style>
-            footer {visibility: hidden;}
-        .stDeployButton {display:none;}
         footer {visibility: hidden;}
+        .stDeployButton {display:none;}
     </style>
 """, unsafe_allow_html=True)
